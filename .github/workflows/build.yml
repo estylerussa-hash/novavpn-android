@@ -3,32 +3,31 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:    # ручной запуск кнопкой
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Получаем код
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 3. Java (нужна для Android SDK)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 4. Зависимости системы
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -37,50 +36,97 @@ jobs:
             pkg-config zlib1g-dev \
             libncurses5-dev libncursesw5-dev \
             cmake libffi-dev libssl-dev \
-            adb
+            build-essential
 
-      # 5. Python пакеты
       - name: Install Python packages
         run: |
           pip install --upgrade pip
-          pip install buildozer cython kivy
+          pip install buildozer==1.5.0 cython==3.0.11
 
-      # 6. Скачиваем xray ARM64
+      - name: Setup Android SDK and accept licenses
+        run: |
+          # Устанавливаем cmdline-tools
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          
+          wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
+               -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip
+          mkdir -p android-sdk/cmdline-tools/latest
+          mv cmdline-tools/* android-sdk/cmdline-tools/latest/ 2>/dev/null || \
+          mv cmdline-tools/cmdline-tools/* android-sdk/cmdline-tools/latest/
+          
+          export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
+          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
+          
+          # Принимаем ВСЕ лицензии автоматически
+          yes | sdkmanager --licenses 2>/dev/null || true
+          yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses 2>/dev/null || true
+          
+          # Устанавливаем нужные компоненты
+          sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+          
+          echo "SDK setup done"
+          ls ~/.buildozer/android/platform/android-sdk/build-tools/
+
       - name: Download xray ARM64
         run: |
           mkdir -p assets
-          wget -q "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-android-arm64-v8a.zip"
-          unzip -o Xray-android-arm64-v8a.zip xray -d assets/
+          wget -q "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-android-arm64-v8a.zip" \
+               -O xray.zip
+          unzip -o xray.zip xray -d assets/
           chmod +x assets/xray
+          echo "xray downloaded:"
           ls -la assets/
 
-      # 7. Кэш Android SDK (ускоряет повторные сборки)
       - name: Cache buildozer
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.buildozer
-            ~/.gradle
+          path: ~/.buildozer
           key: buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: buildozer-
 
-      # 8. Сборка APK
-      - name: Build APK
-        run: |
-          buildozer android debug 2>&1 | tee build.log
+      - name: Cache gradle
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-${{ hashFiles('buildozer.spec') }}
+          restore-keys: gradle-
 
-      # 9. Сохраняем APK как артефакт (скачать можно на вкладке Actions)
+      - name: Accept SDK licenses again before build
+        run: |
+          export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
+          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
+          yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses 2>/dev/null || true
+
+      - name: Build APK
+        env:
+          ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+        run: |
+          # Принимаем лицензии через переменную окружения
+          export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+          
+          buildozer -v android debug 2>&1 | tee build.log
+          
+          echo "=== Build finished ==="
+          find . -name "*.apk" 2>/dev/null || echo "No APK found"
+          ls -la bin/ 2>/dev/null || echo "No bin/ directory"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: nova-vpn-apk
           path: bin/*.apk
           retention-days: 7
 
-      # 10. Если сборка упала — сохраняем лог
-      - name: Upload build log on failure
-        if: failure()
+      - name: Upload build log
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build-log
           path: build.log
+          retention-days: 3
