@@ -1,0 +1,86 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:    # ручной запуск кнопкой
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Получаем код
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Java (нужна для Android SDK)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 4. Зависимости системы
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip \
+            autoconf libtool \
+            pkg-config zlib1g-dev \
+            libncurses5-dev libncursesw5-dev \
+            cmake libffi-dev libssl-dev \
+            adb
+
+      # 5. Python пакеты
+      - name: Install Python packages
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython kivy
+
+      # 6. Скачиваем xray ARM64
+      - name: Download xray ARM64
+        run: |
+          mkdir -p assets
+          wget -q "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-android-arm64-v8a.zip"
+          unzip -o Xray-android-arm64-v8a.zip xray -d assets/
+          chmod +x assets/xray
+          ls -la assets/
+
+      # 7. Кэш Android SDK (ускоряет повторные сборки)
+      - name: Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            ~/.gradle
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: buildozer-
+
+      # 8. Сборка APK
+      - name: Build APK
+        run: |
+          buildozer android debug 2>&1 | tee build.log
+
+      # 9. Сохраняем APK как артефакт (скачать можно на вкладке Actions)
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-vpn-apk
+          path: bin/*.apk
+          retention-days: 7
+
+      # 10. Если сборка упала — сохраняем лог
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
