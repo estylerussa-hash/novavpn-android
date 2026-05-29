@@ -17,18 +17,15 @@ fullscreen      = 0
 
 android.minapi  = 26
 android.api     = 34
-android.ndk     = 25b
+
+# Меняем NDK на рекомендованный p4a
+android.ndk     = 28c
 android.ndk_api = 21
 android.archs   = arm64-v8a
 
-# Важно - используем build-tools 34 а не 37
 android.build_tools_version = 34.0.0
 
 android.permissions = INTERNET,FOREGROUND_SERVICE,RECEIVE_BOOT_COMPLETED
-
-android.add_src = android_src
-
-android.add_assets = assets/xray:xray
 
 android.accept_sdk_license = True
 
