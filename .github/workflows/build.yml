@@ -43,34 +43,41 @@ jobs:
           pip install --upgrade pip
           pip install buildozer==1.5.0 cython==3.0.11
 
-      - name: Setup Android SDK and accept licenses
+      - name: Setup Android SDK
         run: |
-          # Устанавливаем cmdline-tools
-          mkdir -p ~/.buildozer/android/platform
-          cd ~/.buildozer/android/platform
-          
+          export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+
+          # Скачиваем cmdline-tools
           wget -q "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
                -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip
-          mkdir -p android-sdk/cmdline-tools/latest
-          mv cmdline-tools/* android-sdk/cmdline-tools/latest/ 2>/dev/null || \
-          mv cmdline-tools/cmdline-tools/* android-sdk/cmdline-tools/latest/
-          
-          export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
+          unzip -q cmdline-tools.zip -d /tmp/cmdtools
+
+          # Кладём в нужное место
+          mv /tmp/cmdtools/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
+
           export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
-          
-          # Принимаем ВСЕ лицензии автоматически
-          yes | sdkmanager --licenses 2>/dev/null || true
+
+          # Принимаем лицензии
           yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses 2>/dev/null || true
-          
-          # Устанавливаем нужные компоненты
+
+          # Устанавливаем компоненты
           sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0"
-          
-          echo "SDK setup done"
-          ls ~/.buildozer/android/platform/android-sdk/build-tools/
+
+          # Создаём старую структуру tools/bin которую ищет buildozer
+          mkdir -p $ANDROID_SDK_ROOT/tools/bin
+          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+                 $ANDROID_SDK_ROOT/tools/bin/sdkmanager
+          ln -sf $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager \
+                 $ANDROID_SDK_ROOT/tools/bin/avdmanager
+
+          echo "=== SDK structure ==="
+          ls $ANDROID_SDK_ROOT/
+          ls $ANDROID_SDK_ROOT/tools/bin/
+          ls $ANDROID_SDK_ROOT/build-tools/
 
       - name: Download xray ARM64
         run: |
@@ -79,7 +86,6 @@ jobs:
                -O xray.zip
           unzip -o xray.zip xray -d assets/
           chmod +x assets/xray
-          echo "xray downloaded:"
           ls -la assets/
 
       - name: Cache buildozer
@@ -96,21 +102,18 @@ jobs:
           key: gradle-${{ hashFiles('buildozer.spec') }}
           restore-keys: gradle-
 
-      - name: Accept SDK licenses again before build
+      - name: Build APK
         run: |
           export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
           export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin
+          export PATH=$PATH:$ANDROID_SDK_ROOT/tools/bin
+          export PATH=$PATH:$ANDROID_SDK_ROOT/platform-tools
+
+          # Принимаем лицензии ещё раз перед сборкой
           yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses 2>/dev/null || true
 
-      - name: Build APK
-        env:
-          ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
-        run: |
-          # Принимаем лицензии через переменную окружения
-          export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
-          
           buildozer -v android debug 2>&1 | tee build.log
-          
+
           echo "=== Build finished ==="
           find . -name "*.apk" 2>/dev/null || echo "No APK found"
           ls -la bin/ 2>/dev/null || echo "No bin/ directory"
