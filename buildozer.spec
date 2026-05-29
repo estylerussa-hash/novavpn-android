@@ -8,7 +8,8 @@ source.include_exts = py,png,jpg,kv,json
 
 version         = 2.0
 
-requirements    = python3==3.11,kivy==2.3.0,pyjnius==1.6.1,android
+# Убрали python3==3.11 - используем системную версию
+requirements    = python3,kivy==2.3.0,pyjnius==1.6.1,android
 
 icon.filename   = assets/icon.png
 
@@ -17,8 +18,6 @@ fullscreen      = 0
 
 android.minapi  = 26
 android.api     = 34
-
-# Меняем NDK на рекомендованный p4a
 android.ndk     = 28c
 android.ndk_api = 21
 android.archs   = arm64-v8a
